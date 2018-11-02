@@ -2,16 +2,19 @@ import argparse
 import tensorflow as tf
 import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
-import provider
+from utils import provider
 from utils.test_utils import *
 from models import model
+import scannet_dataset
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--gpu', type=str, default="1", help='GPU to use [default: GPU 1]')
+parser.add_argument('--gpu', type=str, default="3", help='GPU to use [default: GPU 1]')
 parser.add_argument('--verbose', action='store_true', help='if specified, use depthconv')
-parser.add_argument('--input_list', type=str, default='/media/hdd2/data/pointnet/stanfordindoor/valid_hdf5_file_list.txt', help='Validation data list')
-parser.add_argument('--restore_dir', type=str, default='checkpoint/stanford_ins_seg_groupmask11_fromgroup_recipweight_nopow2_lr4', help='Directory that stores all training logs and trained models')
+parser.add_argument('--restore_dir', type=str, default='checkpoint/scannet_ins_seg1', help='Directory that stores all training logs and trained models')
 FLAGS = parser.parse_args()
+
+DATA_ROOT = '/mnt/raid/ji/SGPN/data/scannet_data/annotation'
+TEST_DATASET = scannet_dataset.ScannetDatasetWholeScene(root=DATA_ROOT, npoints=4096, split='/mnt/raid/ji/SGPN/data/scannet_data/meta/scannet_train_few.txt')
 
 PRETRAINED_MODEL_PATH = os.path.join(FLAGS.restore_dir,'trained_models/')
 
@@ -28,12 +31,24 @@ OUTPUT_VERBOSE = FLAGS.verbose  # If true, output similarity
 # MAIN SCRIPT
 POINT_NUM = 4096  # the max number of points in the all testing data shapes
 BATCH_SIZE = 1
-NUM_GROUPS = 50
-NUM_CATEGORY = 13
+NUM_GROUPS = 100
+NUM_CATEGORY = 21
 
-TESTING_FILE_LISTFILE = FLAGS.input_list
-test_file_list = provider.getDataFiles(TESTING_FILE_LISTFILE)
-len_pts_files = len(test_file_list)
+def get_test_batch(dataset, i):
+    batch_data = []
+    batch_label = []
+    batch_group = []
+    batch_smpw = []
+    ps,seg,group,smpw = dataset[i]
+    batch_data.append(ps)
+    batch_label.append(seg)
+    batch_group.append(group)
+    batch_smpw.append(smpw)
+    batch_data = np.concatenate(batch_data, 0)
+    batch_label = np.concatenate(batch_label, 0)
+    batch_group = np.concatenate(batch_group, 0)
+    batch_smpw = np.concatenate(batch_smpw, 0)
+    return batch_data, batch_label, batch_group, batch_smpw
 
 def printout(flog, data):
     print(data)
@@ -45,9 +60,8 @@ def predict():
     with tf.device('/gpu:' + str(gpu_to_use)):
         is_training_ph = tf.placeholder(tf.bool, shape=())
 
-        pointclouds_ph, ptsseglabel_ph, ptsgroup_label_ph, _, _, _ = \
+        pointclouds_ph, ptsseglabel_ph, ptsseglabel_onehot_ph, ptsgroup_label_ph, _, _,_ = \
             model.placeholder_inputs(BATCH_SIZE, POINT_NUM, NUM_GROUPS, NUM_CATEGORY)
-
         group_mat_label = tf.matmul(ptsgroup_label_ph, tf.transpose(ptsgroup_label_ph, perm=[0, 2, 1]))
         net_output = model.get_model(pointclouds_ph, is_training_ph, group_cate_num=NUM_CATEGORY)
 
@@ -65,9 +79,9 @@ def predict():
         if ckptstate is not None:
             LOAD_MODEL_FILE = os.path.join(PRETRAINED_MODEL_PATH,os.path.basename(ckptstate.model_checkpoint_path))
             saver.restore(sess, LOAD_MODEL_FILE)
-            print ("Model loaded in file: %s" % LOAD_MODEL_FILE)
+            print("Model loaded in file: %s" % LOAD_MODEL_FILE)
         else:
-            print ("Fail to load modelfile: %s" % PRETRAINED_MODEL_PATH)
+            print("Fail to load modelfile: %s" % PRETRAINED_MODEL_PATH)
 
         ths = np.zeros(NUM_CATEGORY)
         ths_ = np.zeros(NUM_CATEGORY)
@@ -75,20 +89,14 @@ def predict():
         min_groupsize = np.zeros(NUM_CATEGORY)
         min_groupsize_cnt = np.zeros(NUM_CATEGORY)
 
-
-        for shape_idx in range(len_pts_files):
-
-            cur_train_filename = test_file_list[shape_idx]
-
-            if not os.path.exists(cur_train_filename):
-                continue
-            cur_data, cur_group, _, cur_seg = provider.loadDataFile_with_groupseglabel_stanfordindoor(cur_train_filename)
+        for shape_idx in range(len(TEST_DATASET)):
+            cur_data, cur_seg, cur_group, _ = get_test_batch(TEST_DATASET, shape_idx)
 
             if OUTPUT_VERBOSE:
                 pts = np.reshape(cur_data, [-1,9])
                 output_point_cloud_rgb(pts[:, 6:], pts[:, 3:6], os.path.join(OUTPUT_DIR, '%d_pts.obj' % (shape_idx)))
 
-            pts_label_one_hot, pts_label_mask = model.convert_seg_to_one_hot(cur_seg)
+            pts_label_one_hot = model.convert_seg_to_one_hot(cur_seg)
             pts_group_label, _ = model.convert_groupandcate_to_one_hot(cur_group)
             num_data = cur_data.shape[0]
 
@@ -102,14 +110,15 @@ def predict():
                 min_groupsize_cnt[groupcate] += 1
 
             for j in range(num_data):
-
-                print ("Processsing: Shape [%d] Block[%d]"%(shape_idx, j))
+                print("Processsing: Shape [%d] Block[%d]"%(shape_idx, j))
 
                 pts = cur_data[j,...]
+                seg = cur_seg[j,...]
 
                 feed_dict = {
                     pointclouds_ph: np.expand_dims(pts,0),
-                    ptsseglabel_ph: np.expand_dims(pts_label_one_hot[j,...],0),
+                    ptsseglabel_ph: np.expand_dims(seg, 0),
+                    ptsseglabel_onehot_ph: np.expand_dims(pts_label_one_hot[j,...],0),
                     ptsgroup_label_ph: np.expand_dims(pts_group_label[j,...],0),
                     is_training_ph: is_training,
                 }
@@ -133,10 +142,10 @@ def predict():
 
                 ind = (seg == 8)
                 pts_corr_val0 = (pts_corr_val > 1.).astype(np.float)
-                print np.mean(np.transpose(np.abs(pts_corr_label_val[ind] - pts_corr_val0[ind]),axes=[1,0])[ind])
+                print(np.mean(np.transpose(np.abs(pts_corr_label_val[ind] - pts_corr_val0[ind]),axes=[1,0])[ind]))
 
                 ths, ths_, cnt = Get_Ths(pts_corr_val, seg, ins, ths, ths_, cnt)
-                print ths/cnt
+                print(ths/cnt)
 
 
                 if OUTPUT_VERBOSE:

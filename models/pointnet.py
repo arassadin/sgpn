@@ -9,6 +9,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import tf_util
+from pointnet_util import pointnet_sa_module, pointnet_fp_module
 
 
 def placeholder_inputs(batch_size, num_point):
@@ -17,7 +18,6 @@ def placeholder_inputs(batch_size, num_point):
     labels_pl = tf.placeholder(tf.int32,
                                shape=(batch_size, num_point))
     return pointclouds_pl, labels_pl
-
 
 def get_model(point_cloud, is_training, bn=True, bn_decay=None):
     """ ConvNet baseline, input is BxNx9 gray image """
@@ -57,6 +57,27 @@ def get_model(point_cloud, is_training, bn=True, bn_decay=None):
     # net = tf.squeeze(net, [2])
 
     return net
+
+def get_model_scannet(point_cloud, is_training, bn=True, bn_decay=None):
+    """ ConvNet baseline, input is BxNx9 gray image """
+    batch_size = point_cloud.get_shape()[0].value
+    num_point = point_cloud.get_shape()[1].value
+
+    l0_xyz = point_cloud[:, :, :3]
+    l0_points = None #point_cloud[:, :, 3:9]
+
+    l1_xyz, l1_points, l1_indices = pointnet_sa_module(l0_xyz, l0_points, npoint=1024, radius=0.1, nsample=32, mlp=[32,32,64], mlp2=None, group_all=False, is_training=is_training, bn_decay=bn_decay, scope='layer1')
+    l2_xyz, l2_points, l2_indices = pointnet_sa_module(l1_xyz, l1_points, npoint=256, radius=0.2, nsample=32, mlp=[64,64,128], mlp2=None, group_all=False, is_training=is_training, bn_decay=bn_decay, scope='layer2')
+    l3_xyz, l3_points, l3_indices = pointnet_sa_module(l2_xyz, l2_points, npoint=64, radius=0.4, nsample=32, mlp=[128,128,256], mlp2=None, group_all=False, is_training=is_training, bn_decay=bn_decay, scope='layer3')
+    l4_xyz, l4_points, l4_indices = pointnet_sa_module(l3_xyz, l3_points, npoint=16, radius=0.8, nsample=32, mlp=[256,256,512], mlp2=None, group_all=False, is_training=is_training, bn_decay=bn_decay, scope='layer4')
+
+    # Feature Propagation layers
+    l3_points = pointnet_fp_module(l3_xyz, l4_xyz, l3_points, l4_points, [256,256], is_training, bn_decay, scope='fa_layer1')
+    l2_points = pointnet_fp_module(l2_xyz, l3_xyz, l2_points, l3_points, [256,256], is_training, bn_decay, scope='fa_layer2')
+    l1_points = pointnet_fp_module(l1_xyz, l2_xyz, l1_points, l2_points, [256,128], is_training, bn_decay, scope='fa_layer3')
+    l0_points = pointnet_fp_module(l0_xyz, l1_xyz, l0_points, l1_points, [128,128,128], is_training, bn_decay, scope='fa_layer4')
+
+    return l0_points
 
 
 def get_loss(pred, label):

@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import stats
+import matplotlib.pyplot as plt
 import matplotlib as mpl
 import json
 mpl.use('Agg')
@@ -18,7 +19,7 @@ def Get_Ths(pts_corr, seg, ins, ths, ths_, cnt):
             hist, bin = np.histogram(pt[pts_in_curins_ind], bins=20)
 
             if seg[ip]==8:
-                print bin
+                print(bin)
 
             numpt_in_curins = np.sum(pts_in_curins_ind)
             numpt_notin_curins = np.sum(pts_notin_curins_ind)
@@ -56,7 +57,7 @@ def Get_Ths(pts_corr, seg, ins, ths, ths_, cnt):
             hist, bin = np.histogram(pt[pts_in_curins_ind], bins=20)
 
             if seg[ip]==8:
-                print bin
+                print(bin)
 
             numpt_in_curins = np.sum(pts_in_curins_ind)
             numpt_notin_curins = np.sum(pts_notin_curins_ind)
@@ -175,7 +176,10 @@ def BlockMerging(volume, volume_seg, pts, grouplabel, groupseg, gap=1e-3):
         zz=z[i]
         if grouplabel[i] != -1:
             if volume[xx,yy,zz]!=-1 and volume_seg[xx,yy,zz]==groupseg[grouplabel[i]]:
-                overlapgroupcounts[grouplabel[i],volume[xx,yy,zz]] += 1
+                try:
+                    overlapgroupcounts[grouplabel[i],volume[xx,yy,zz]] += 1
+                except:
+                    print('error')
         groupcounts[grouplabel[i]] += 1
 
     groupcate = np.argmax(overlapgroupcounts,axis=1)
@@ -231,7 +235,7 @@ def eval_3d_perclass(tp, fp, npos):
 ##    Visualize Results   ##
 ############################
 
-color_map = json.load(open('part_color_mapping.json', 'r'))
+#color_map = json.load(open('part_color_mapping.json', 'r'))
 
 def output_bounding_box_withcorners(box_corners, seg, out_file):
     # ##############   0       1       2       3       4       5       6       7
@@ -245,7 +249,7 @@ def output_bounding_box_withcorners(box_corners, seg, out_file):
             for line_index in line_indexes:
                 corner0 = box[line_index[0]]
                 corner1 = box[line_index[1]]
-                print corner0.shape
+                print(corner0.shape)
                 dist = np.linalg.norm(corner0 - corner1)
                 dot_num = int(dist / 0.005)
                 delta = (corner1 - corner0) / dot_num
@@ -307,7 +311,7 @@ def output_color_point_cloud_red_blue(data, seg, out_file):
 
 ##define color heat map
 norm = mpl.colors.Normalize(vmin=0, vmax=255)
-magma_cmap = mpl.cm.get_cmap('magma')
+magma_cmap = plt.cm.get_cmap('magma')
 magma_rgb = []
 for i in range(0, 255):
        k = mpl.colors.colorConverter.to_rgb(magma_cmap(norm(i)))
