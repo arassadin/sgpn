@@ -86,7 +86,7 @@ def get_label2id(filename):
 
     return mapping
 
-filename = 'data/suncg_data/meta/suncg_5.txt'
+filename = 'data/suncg_data/meta/suncg_all.txt'
 scan_path = '/mnt/braxis_datasets/Bounding_boxes/suncg_pc'
 
 scenes = open(filename).readlines()
@@ -119,6 +119,7 @@ for idx, scene in enumerate(scenes):
     for label,ins,_ in ply_data['vertex']:
         labels.append([label, ins])
     labels = np.array(labels)
+
     try:
         points = np.concatenate([points, labels], axis=1)
     except:
