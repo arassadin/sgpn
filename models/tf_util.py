@@ -500,7 +500,7 @@ def batch_norm_template(inputs, is_training, scope, moments_dims, bn_decay):
   return normed
 
 def batch_norm_template_old(inputs, is_training, scope, moments_dims, bn_decay):
-  print inputs.get_shape()
+  print(inputs.get_shape())
   with tf.variable_scope(scope):
       normed = tf.contrib.layers.batch_norm(inputs,
                                             center=True,

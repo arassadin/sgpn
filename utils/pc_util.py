@@ -8,13 +8,6 @@ import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
-sys.path.append(os.path.dirname(BASE_DIR))
-sys.path.append(os.path.join(BASE_DIR, 'models'))
-sys.path.append(os.path.join(BASE_DIR, 'utils'))
-sys.path.append(os.path.join(BASE_DIR, '../models'))
-import provider
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(BASE_DIR)
 
 # Draw point cloud
 from eulerangles import euler2mat
@@ -77,6 +70,105 @@ def volume_to_point_cloud(vol):
     points = np.vstack(points)
     return points
 
+def point_cloud_to_volume_v2_batch(point_clouds, vsize=12, radius=1.0, num_sample=128):
+    """ Input is BxNx3 a batch of point cloud
+        Output is BxVxVxVxnum_samplex3
+        Added on Feb 19
+    """
+    vol_list = []
+    for b in range(point_clouds.shape[0]):
+        vol = point_cloud_to_volume_v2(point_clouds[b,:,:], vsize, radius, num_sample)
+        vol_list.append(np.expand_dims(vol, 0))
+    return np.concatenate(vol_list, 0)
+
+def point_cloud_to_volume_v2(points, vsize, radius=1.0, num_sample=128):
+    """ input is Nx3 points
+        output is vsize*vsize*vsize*num_sample*3
+        assumes points are in range [-radius, radius]
+        samples num_sample points in each voxel, if there are less than
+        num_sample points, replicate the points
+        Added on Feb 19
+    """
+    vol = np.zeros((vsize,vsize,vsize,num_sample,3))
+    voxel = 2*radius/float(vsize)
+    locations = (points + radius)/voxel
+    locations = locations.astype(int)
+    loc2pc = {}
+    for n in range(points.shape[0]):
+        loc = tuple(locations[n,:])
+        if loc not in loc2pc:
+            loc2pc[loc] = []
+        loc2pc[loc].append(points[n,:])
+    #print loc2pc
+
+    for i in range(vsize):
+        for j in range(vsize):
+            for k in range(vsize):
+                if (i,j,k) not in loc2pc:
+                    vol[i,j,k,:,:] = np.zeros((num_sample,3))
+                else:
+                    pc = loc2pc[(i,j,k)] # a list of (3,) arrays
+                    pc = np.vstack(pc) # kx3
+                    # Sample/pad to num_sample points
+                    if pc.shape[0]>num_sample:
+                        choices = np.random.choice(pc.shape[0], num_sample, replace=False)
+                        pc = pc[choices,:]
+                    elif pc.shape[0]<num_sample:
+                        pc = np.lib.pad(pc, ((0,num_sample-pc.shape[0]),(0,0)), 'edge')
+                    # Normalize
+                    pc_center = (np.array([i,j,k])+0.5)*voxel - radius
+                    #print 'pc center: ', pc_center
+                    pc = (pc - pc_center) / voxel # shift and scale
+                    vol[i,j,k,:,:] = pc 
+                #print (i,j,k), vol[i,j,k,:,:]
+    return vol
+
+def point_cloud_to_image_batch(point_clouds, imgsize, radius=1.0, num_sample=128):
+    """ Input is BxNx3 a batch of point cloud
+        Output is BxIxIxnum_samplex3
+        Added on Feb 19
+    """
+    img_list = []
+    for b in range(point_clouds.shape[0]):
+        img = point_cloud_to_image(point_clouds[b,:,:], imgsize, radius, num_sample)
+        img_list.append(np.expand_dims(img, 0))
+    return np.concatenate(img_list, 0)
+
+
+def point_cloud_to_image(points, imgsize, radius=1.0, num_sample=128):
+    """ input is Nx3 points
+        output is imgsize*imgsize*num_sample*3
+        assumes points are in range [-radius, radius]
+        samples num_sample points in each pixel, if there are less than
+        num_sample points, replicate the points
+        Added on Feb 19
+    """
+    img = np.zeros((imgsize, imgsize, num_sample, 3))
+    pixel = 2*radius/float(imgsize)
+    locations = (points[:,0:2] + radius)/pixel # Nx2
+    locations = locations.astype(int)
+    loc2pc = {}
+    for n in range(points.shape[0]):
+        loc = tuple(locations[n,:])
+        if loc not in loc2pc:
+            loc2pc[loc] = []
+        loc2pc[loc].append(points[n,:])
+    for i in range(imgsize):
+        for j in range(imgsize):
+            if (i,j) not in loc2pc:
+                img[i,j,:,:] = np.zeros((num_sample,3))
+            else:
+                pc = loc2pc[(i,j)]
+                pc = np.vstack(pc)
+                if pc.shape[0]>num_sample:
+                    choices = np.random.choice(pc.shape[0], num_sample, replace=False)
+                    pc = pc[choices,:]
+                elif pc.shape[0]<num_sample:
+                    pc = np.lib.pad(pc, ((0,num_sample-pc.shape[0]),(0,0)), 'edge')
+                pc_center = (np.array([i,j])+0.5)*pixel - radius
+                pc[:,0:2] = (pc[:,0:2] - pc_center)/pixel
+                img[i,j,:,:] = pc
+    return img
 # ----------------------------------------
 # Point cloud IO
 # ----------------------------------------
@@ -88,20 +180,6 @@ def read_ply(filename):
     pc_array = np.array([[x, y, z] for x,y,z in pc])
     return pc_array
 
-def read_ply_coloralpha(filename):
-    """ read XYZRGB point cloud from filename PLY file """
-    plydata = PlyData.read(filename)
-    pc = plydata['vertex'].data
-    pc_array = np.array([[x, y, z, r, g, b, a] for x, y, z, r, g, b, a in pc])
-    return pc_array
-
-def read_ply_all(filename):
-    """ read XYZRGB point cloud from filename PLY file """
-    plydata = PlyData.read(filename)
-    pc = plydata['vertex'].data
-    pc_array = np.array([[x, y, z, r, g, b, a, l] for x, y, z, r, g, b, a, l in pc])
-    return pc_array
-
 
 def write_ply(points, filename, text=True):
     """ input: Nx3, write points to filename as PLY format. """
@@ -109,25 +187,6 @@ def write_ply(points, filename, text=True):
     vertex = np.array(points, dtype=[('x', 'f4'), ('y', 'f4'),('z', 'f4')])
     el = PlyElement.describe(vertex, 'vertex', comments=['vertices'])
     PlyData([el], text=text).write(filename)
-
-def write_ply_color(points, filename, text=True):
-    """ input: Nx6, write points to filename as PLY format. """
-    points_ = [(points[i,0], points[i,1], points[i,2]) for i in range(points.shape[0])]
-    points_color_ = [(255*points[i,3], 255*points[i,4], 255*points[i,5]) for i in range(points.shape[0])]
-
-    n = points.shape[0]
-    vertex = np.array(points_, dtype=[('x', 'f4'), ('y', 'f4'),('z', 'f4')])
-    vertex_color = np.array(points_color_, dtype=[('red', 'u1'), ('green', 'u1'),('blue', 'u1')])
-    vertex_all = np.empty(n, vertex.dtype.descr + vertex_color.dtype.descr)
-
-    for prop in vertex.dtype.names:
-        vertex_all[prop] = vertex[prop]
-
-    for prop in vertex_color.dtype.names:
-        vertex_all[prop] = vertex_color[prop]
-
-    ply = PlyData([PlyElement.describe(vertex_all, 'vertex')], text=True)
-    ply.write(filename)
 
 
 # ----------------------------------------
@@ -207,28 +266,21 @@ def point_cloud_three_views(points):
     return image_large
 
 
-from PIL import Image
 def point_cloud_three_views_demo():
     """ Demo for draw_point_cloud function """
+    from PIL import Image
     points = read_ply('../third_party/mesh_sampling/piano.ply')
     im_array = point_cloud_three_views(points)
     img = Image.fromarray(np.uint8(im_array*255.0))
     img.save('piano.jpg')
 
 if __name__=="__main__":
-    # point_cloud_three_views_demo()
+    point_cloud_three_views_demo()
 
-    current_data, current_label = provider.loadDataFile('/staging/ww/weiyuewa/pointnet/modelnet40_ply_hdf5_2048/ply_data_test1.h5')#'/staging/ww/weiyuewa/pointnet/PartClassification/ 9142.h5')
-    for i in range(2048):
-        points = np.squeeze(current_data[i,:,:])
-        label = np.squeeze(current_label[i,])
-        im_array = point_cloud_three_views(points)
-        img = Image.fromarray(np.uint8(im_array*255.0))
-        img.save('tmp/modelnet%d_%d.jpg'%(label,i))
 
-import matplotlib.pyplot as plt
 def pyplot_draw_point_cloud(points, output_filename):
     """ points is a Nx3 numpy array """
+    import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.scatter(points[:,0], points[:,1], points[:,2])
@@ -243,3 +295,62 @@ def pyplot_draw_volume(vol, output_filename):
     """
     points = volume_to_point_cloud(vol)
     pyplot_draw_point_cloud(points, output_filename)
+
+def write_obj_color(points, labels, out_filename, num_classes=None):
+    """ Color (N,3) points with labels (N) within range 0 ~ num_classes-1 as OBJ file """
+    labels = labels.astype(int)
+    N = points.shape[0]
+    if num_classes is None:
+        num_classes = np.max(labels)+1
+    else:
+        assert(num_classes>np.max(labels))
+    fout = open(out_filename, 'w')
+    ID_COLOR = {
+     -1 :[0,   0,   0  ],
+     0 : [0,   0,   0  ],
+     1 : [174, 199, 232],
+     2 : [152, 223, 138],
+     3 : [31,  119, 180],
+     4 : [255, 187, 120],
+     5 : [188, 189, 34 ],
+     6 : [140, 86,  75 ],
+     7 : [255, 152, 150],
+     8 : [214, 39,  40 ],
+     9 : [197, 176, 213],
+     10: [148, 103, 189],
+     11: [196, 156, 148],
+     12: [23,  190, 207],
+     13: [178, 76,  76 ],
+     14: [247, 182, 210],
+     15: [66,  188, 102],
+     16: [219, 219, 141],
+     17: [140, 57,  197],
+     18: [202, 185, 52 ],
+     19: [51,  176, 203],
+     20: [200, 54,  131],
+     21: [92,  193, 61 ],
+     22: [78,  71,  183],
+     23: [172, 114, 82 ],
+     24: [255, 127, 14 ],
+     25: [91,  163, 138],
+     26: [153, 98,  156],
+     27: [140, 153, 101],
+     28: [158, 218, 229],
+     29: [100, 125, 154],
+     30: [178, 127, 135],
+     31: [120, 185, 128],
+     32: [146, 111, 194],
+     33: [44,  160, 44 ],
+     34: [112, 128, 144],
+     35: [96,  207, 209],
+     36: [227, 119, 194],
+     37: [213, 92,  176],
+     38: [94,  106, 211],
+     39: [82,  84,  163],
+     40: [100, 85,  144]}
+    #colors = [pyplot.cm.hsv(i/float(num_classes)) for i in range(num_classes)]
+    #colors = [pyplot.cm.jet(i/float(num_classes)) for i in range(num_classes)]
+    for i in range(N):
+        c = ID_COLOR[labels[i]%41]
+        fout.write('v %f %f %f %d %d %d\n' % (points[i,0],points[i,1],points[i,2],c[0],c[1],c[2]))
+    fout.close()

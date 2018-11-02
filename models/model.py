@@ -12,45 +12,34 @@ import tf_util
 import pointnet
 
 
-NUM_CATEGORY = 13
-NUM_GROUPS = 50
+NUM_CATEGORY = 21
+NUM_GROUPS = 100
 
 def placeholder_inputs(batch_size, num_point, num_group, num_cate):
-
     if num_point == 0:
         pointclouds_ph = tf.placeholder(tf.float32, shape=(batch_size, None, 9))
     else:
         pointclouds_ph = tf.placeholder(tf.float32, shape=(batch_size, num_point, 9))
 
-    pts_seglabels_ph = tf.placeholder(tf.int32, shape=(batch_size, num_point, num_cate))
+    pts_seglabels_ph = tf.placeholder(tf.int32, shape=(batch_size, num_point))
+    pts_seglabels_onehot_ph = tf.placeholder(tf.int32, shape=(batch_size, num_point, num_cate))
     pts_grouplabels_ph = tf.placeholder(tf.float32, shape=(batch_size, num_point, num_group))
     pts_seglabel_mask_ph = tf.placeholder(tf.float32, shape=(batch_size, num_point))
     pts_group_mask_ph = tf.placeholder(tf.float32, shape=(batch_size, num_point))
 
     alpha_ph = tf.placeholder(tf.float32, shape=())
 
-    return pointclouds_ph, pts_seglabels_ph, pts_grouplabels_ph, pts_seglabel_mask_ph, pts_group_mask_ph, alpha_ph
+    return pointclouds_ph, pts_seglabels_ph, pts_seglabels_onehot_ph, pts_grouplabels_ph, pts_seglabel_mask_ph, pts_group_mask_ph, alpha_ph
 
 def convert_seg_to_one_hot(labels):
-    # labels:BxN
 
     label_one_hot = np.zeros((labels.shape[0], labels.shape[1], NUM_CATEGORY))
-    pts_label_mask = np.zeros((labels.shape[0], labels.shape[1]))
-
-    un, cnt = np.unique(labels, return_counts=True)
-    label_count_dictionary = dict(zip(un, cnt))
-    totalnum = 0
-    for k_un, v_cnt in label_count_dictionary.iteritems():
-        if k_un != -1:
-            totalnum += v_cnt
-
     for idx in range(labels.shape[0]):
         for jdx in range(labels.shape[1]):
             if labels[idx, jdx] != -1:
                 label_one_hot[idx, jdx, labels[idx, jdx]] = 1
-                pts_label_mask[idx, jdx] = float(totalnum) / float(label_count_dictionary[labels[idx, jdx]]) # 1. - float(label_count_dictionary[labels[idx, jdx]]) / totalnum
 
-    return label_one_hot, pts_label_mask
+    return label_one_hot
 
 
 def convert_groupandcate_to_one_hot(grouplabels):
@@ -62,7 +51,7 @@ def convert_groupandcate_to_one_hot(grouplabels):
     un, cnt = np.unique(grouplabels, return_counts=True)
     group_count_dictionary = dict(zip(un, cnt))
     totalnum = 0
-    for k_un, v_cnt in group_count_dictionary.iteritems():
+    for k_un, v_cnt in group_count_dictionary.items():
         if k_un != -1:
             totalnum += v_cnt
 
@@ -70,7 +59,7 @@ def convert_groupandcate_to_one_hot(grouplabels):
         un = np.unique(grouplabels[idx])
         grouplabel_dictionary = dict(zip(un, range(len(un))))
         for jdx in range(grouplabels.shape[1]):
-            if grouplabels[idx, jdx] != -1:
+            if grouplabels[idx, jdx] != 255:
                 group_one_hot[idx, jdx, grouplabel_dictionary[grouplabels[idx, jdx]]] = 1
                 pts_group_mask[idx, jdx] = float(totalnum) / float(group_count_dictionary[grouplabels[idx, jdx]]) # 1. - float(group_count_dictionary[grouplabels[idx, jdx]]) / totalnum
 
@@ -108,17 +97,18 @@ def get_model(point_cloud, is_training, group_cate_num=50, m=10., bn_decay=None)
     batch_size = point_cloud.get_shape()[0].value
     print(point_cloud.get_shape())
 
-    F = pointnet.get_model(point_cloud, is_training, bn=True, bn_decay=bn_decay)
-
+    #F = pointnet.get_model(point_cloud, is_training, bn=True, bn_decay=bn_decay)
+    F = pointnet.get_model_scannet(point_cloud, is_training, bn=True, bn_decay=bn_decay)
     # Semantic prediction
-    Fsem = tf_util.conv2d(F, 128, [1, 1], padding='VALID', stride=[1, 1], bn=False, is_training=is_training, scope='Fsem')
+    Fsem = tf_util.conv1d(F, 128, 1, padding='VALID', bn=True, is_training=is_training, scope='Fsem')
+    Fsem = tf_util.dropout(Fsem, keep_prob=0.5, is_training=is_training, scope='dp1')
 
-    ptssemseg_logits = tf_util.conv2d(Fsem, group_cate_num, [1, 1], padding='VALID', stride=[1, 1], activation_fn=None, scope='ptssemseg_logits')
-    ptssemseg_logits = tf.squeeze(ptssemseg_logits, [2])
-
+    ptssemseg_logits = tf_util.conv1d(Fsem, group_cate_num, 1, padding='VALID', activation_fn=None, scope='ptssemseg_logits')
+    #ptssemseg_logits = tf.squeeze(ptssemseg_logits, [2])
     ptssemseg = tf.nn.softmax(ptssemseg_logits, name="ptssemseg")
 
     # Similarity matrix
+    F = tf.expand_dims(F, 2)
     Fsim = tf_util.conv2d(F, 128, [1, 1], padding='VALID', stride=[1, 1], bn=False, is_training=is_training, scope='Fsim')
 
     Fsim = tf.squeeze(Fsim, [2])
@@ -151,8 +141,9 @@ def get_loss(net_output, labels, alpha=10., margin=[1.,2.]):
         labels:{'ptsgroup', 'semseg','semseg_mask','group_mask'}
     """
 
+
+    pts_semseg_label = labels['semseg_onehot']
     pts_group_label = labels['ptsgroup']
-    pts_semseg_label = labels['semseg']
     group_mask = tf.expand_dims(labels['group_mask'], dim=2)
 
     pred_confidence_logits = net_output['conf']
@@ -191,18 +182,17 @@ def get_loss(net_output, labels, alpha=10., margin=[1.,2.]):
     neg_samesem = alpha * tf.multiply(diffgroup_samesem_mat_label, tf.maximum(tf.subtract(C_same, pred_simmat), 0))
     neg_diffsem = tf.multiply(diffgroup_diffsem_mat_label, tf.maximum(tf.subtract(C_diff, pred_simmat), 0))
 
-
     simmat_loss = neg_samesem + neg_diffsem + pos
     group_mask_weight = tf.matmul(group_mask, tf.transpose(group_mask, perm=[0, 2, 1]))
     # simmat_loss = tf.add(simmat_loss, pos)
     simmat_loss = tf.multiply(simmat_loss, group_mask_weight)
-
     simmat_loss = tf.reduce_mean(simmat_loss)
 
     # Semantic Segmentation loss
-    ptsseg_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net_output['semseg_logits'], labels=pts_semseg_label)
-    ptsseg_loss = tf.multiply(ptsseg_loss, labels['semseg_mask'])
-    ptsseg_loss = tf.reduce_mean(ptsseg_loss)
+    #ptsseg_loss = tf.nn.softmax_cross_entropy_with_logits(logits=net_output['semseg_logits'], labels=pts_semseg_label)
+    #ptsseg_loss = tf.multiply(ptsseg_loss, labels['semseg_mask'])
+    #ptsseg_loss = tf.reduce_mean(ptsseg_loss)
+    ptsseg_loss = tf.losses.sparse_softmax_cross_entropy(labels=labels['semseg'], logits=net_output['semseg_logits'], weights=labels['semseg_mask'])
 
     # Confidence Map loss
     Pr_obj = tf.reduce_sum(pts_semseg_label,axis=2)
@@ -219,10 +209,9 @@ def get_loss(net_output, labels, alpha=10., margin=[1.,2.]):
     confidence_loss = tf.reduce_mean(tf.squared_difference(confidence_label, tf.squeeze(pred_confidence_logits,[2])))
 
     loss = simmat_loss + ptsseg_loss + confidence_loss
-
     grouperr = tf.abs(tf.cast(ng, tf.float32) - tf.cast(ng_label, tf.float32))
 
-    return loss, tf.reduce_mean(grouperr), \
+    return ptsseg_loss, simmat_loss, loss, tf.reduce_mean(grouperr), \
            tf.reduce_sum(grouperr * diffgroup_samesem_mat_label), num_diffgroup_samesem, \
            tf.reduce_sum(grouperr * diffgroup_diffsem_mat_label), num_diffgroup_diffsem, \
            tf.reduce_sum(grouperr * samegroup_mat_label), num_samegroup
