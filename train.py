@@ -10,6 +10,7 @@ from utils import pc_util
 from models import model
 import torchnet as tnt
 import scannet_dataset
+import suncg_dataset
 from utils import provider
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -26,28 +27,31 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Parsing Arguments
 parser = argparse.ArgumentParser()
 # Experiment Settings
-parser.add_argument('--gpu', type=str, default="3", help='GPU to use [default: GPU 1]')
+parser.add_argument('--gpu', type=str, default="5", help='GPU to use [default: GPU 1]')
 parser.add_argument('--wd', type=float, default=0.9, help='Weight Decay [Default: 0.0]')
 parser.add_argument('--epoch', type=int, default=200, help='Number of epochs [default: 50]')
 parser.add_argument('--batch', type=int, default=32, help='Batch Size during training [default: 4]')
 parser.add_argument('--pretrain', type=bool, default=True, help='pretrain semantics segmenation')
-parser.add_argument('--point_num', type=int, default=8192, help='Point Number')
-parser.add_argument('--group_num', type=int, default=100, help='Maximum Group Number in one pc')
-parser.add_argument('--cate_num', type=int, default=21, help='Number of categories')
+parser.add_argument('--point_num', type=int, default=4096, help='Point Number')
+parser.add_argument('--group_num', type=int, default=150, help='Maximum Group Number in one pc')
+parser.add_argument('--cate_num', type=int, default=28, help='Number of categories')
 parser.add_argument('--margin_same', type=float, default=1., help='Double hinge loss margin: same semantic')
 parser.add_argument('--margin_diff', type=float, default=2., help='Double hinge loss margin: different semantic')
 
 # Input&Output Settings
-parser.add_argument('--output_dir', type=str, default='checkpoint/scannet_sem_seg2', help='Directory that stores all training logs and trained models')
-parser.add_argument('--restore_model', type=str, default='checkpoint/scannet_sem_seg2', help='Pretrained model')
+parser.add_argument('--output_dir', type=str, default='checkpoint/suncg_sem_seg_aug', help='Directory that stores all training logs and trained models')
+parser.add_argument('--restore_model', type=str, default='checkpoint/suncg_sem_seg_aug', help='Pretrained model')
 
 FLAGS = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu
 
 # dataloader
-DATA_ROOT = '/mnt/raid/ji/SGPN/data/scannet_data/annotation'
-TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_ROOT, npoints=FLAGS.point_num, split='/mnt/raid/ji/SGPN/data/scannet_data/meta/scannet_train.txt')
-TEST_DATASET = scannet_dataset.ScannetDatasetWholeScene(root=DATA_ROOT, npoints=FLAGS.point_num, split='/mnt/raid/ji/SGPN/data/scannet_data/meta/scannet_test_few.txt')
+#DATA_ROOT = 'data/suncg_data/annotation'
+#TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_ROOT, npoints=FLAGS.point_num, split='data/suncg_data/meta/suncg_train_few.txt')
+#TEST_DATASET = scannet_dataset.ScannetDatasetWholeScene(root=DATA_ROOT, npoints=FLAGS.point_num, split='data/suncg_data/meta/suncg_test_few.txt')
+DATA_ROOT = 'data/suncg_data/annotation'
+TRAIN_DATASET = suncg_dataset.SUNCGDataset(root=DATA_ROOT, npoints=FLAGS.point_num, split='data/suncg_data/meta/suncg_train.txt')
+TEST_DATASET = suncg_dataset.SUNCGDatasetWholeScene(root=DATA_ROOT, npoints=FLAGS.point_num, split='data/suncg_data/meta/suncg_test_few.txt')
 
 
 PRETRAINED_MODEL_PATH = os.path.join(FLAGS.restore_model, 'trained_models/')
@@ -132,11 +136,11 @@ def get_batch(dataset, idxs, start_idx, end_idx):
         batch_label[i,:] = seg
         batch_group[i,:] = group
         batch_smpw[i,:] = smpw
-        dropout_ratio = np.random.random()*0.875 # 0-0.875
-        drop_idx = np.where(np.random.random((ps.shape[0]))<=dropout_ratio)[0]
-        batch_data[i,drop_idx,:] = batch_data[i,0,:]
-        batch_label[i,drop_idx] = batch_label[i,0]
-        batch_smpw[i,drop_idx] *= 0
+        #dropout_ratio = np.random.random()*0.875 # 0-0.875
+        #drop_idx = np.where(np.random.random((ps.shape[0]))<=dropout_ratio)[0]
+        #batch_data[i,drop_idx,:] = batch_data[i,0,:]
+        #batch_label[i,drop_idx] = batch_label[i,0]
+        #batch_smpw[i,drop_idx] *= 0
     return batch_data, batch_label, batch_group, batch_smpw
 
 def get_bn_decay(batch):

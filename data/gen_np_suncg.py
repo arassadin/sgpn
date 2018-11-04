@@ -122,14 +122,13 @@ for idx, scene in enumerate(scenes):
 
     try:
         points = np.concatenate([points, labels], axis=1)
+        #import ipdb
+        #ipdb.set_trace()
+        #point_label_to_obj(points, 'data.obj', show_color='data')
+        #point_label_to_obj(points, 'instance.obj', show_color='instance')
+        #point_label_to_obj(points, 'label.obj', show_color='label')
+        np.save('data/suncg_data/annotation/{}'.format(scene.strip()), points)
     except:
         print(scene.strip())
 
-    #import ipdb
-    #ipdb.set_trace()
-    #point_label_to_obj(points, 'data.obj', show_color='data')
-    #point_label_to_obj(points, 'instance.obj', show_color='instance')
-    #point_label_to_obj(points, 'label.obj', show_color='label')
-
-    np.save('data/suncg_data/annotation/{}'.format(scene.strip()), points)
 

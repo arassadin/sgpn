@@ -9,7 +9,7 @@ from utils import scene_util
 
 NUM_CLASSES = 28
 
-class ScannetDataset():
+class SUNCGDataset():
     def __init__(self, root, npoints=4096, split='train'):
         self.npoints = npoints
         with open(split) as f:
@@ -30,8 +30,6 @@ class ScannetDataset():
             self.scene_points_list += [data[:, :6]]
             self.semantic_labels_list += [data[:, 6]]
             self.instance_labels_list += [data[:, 7]]
-            if idx == 3:
-                break
 
         labelweights = np.zeros(NUM_CLASSES)
         for seg in self.semantic_labels_list:
@@ -61,19 +59,17 @@ class ScannetDataset():
         point_set_normalize = (self.scene_points_list[index][:,:3] - coordmin) / (coordmax - coordmin)
         point_set_rgb = self.scene_points_list[index][:,3:6] / 255.0
 
-        smpmin = np.maximum(coordmax-[1.5,1.5,3.0], coordmin)
-        smpmin[2] = coordmin[2]
-        smpsz = np.minimum(coordmax-smpmin,[1.5,1.5,3.0])
-        smpsz[2] = coordmax[2]-coordmin[2]
+        smpmin = np.maximum(coordmax-[1.5,3.0,1.5], coordmin)
+        smpmin[1] = coordmin[1]
+        smpsz = np.minimum(coordmax-smpmin,[1.5,3.0,1.5])
+        smpsz[1] = coordmax[1]-coordmin[1]
         isvalid = False
-        import ipdb
-        ipdb.set_trace()
         for i in range(10):
             curcenter = point_set[np.random.choice(len(semantic_seg),1)[0],:]
-            curmin = curcenter-[0.75,0.75,1.5]
-            curmax = curcenter+[0.75,0.75,1.5]
-            curmin[2] = coordmin[2]
-            curmax[2] = coordmax[2]
+            curmin = curcenter-[0.75, 1.5, 0.75]
+            curmax = curcenter+[0.75, 1.5, 0.75]
+            curmin[1] = coordmin[1]
+            curmax[1] = coordmax[1]
             curchoice = np.sum((point_set>=(curmin-0.2))*(point_set<=(curmax+0.2)),axis=1)==3
 
             cur_point_set = point_set[curchoice,:]
@@ -85,9 +81,9 @@ class ScannetDataset():
             if len(cur_semantic_seg)==0:
                 continue
             mask = np.sum((cur_point_set>=(curmin-0.01))*(cur_point_set<=(curmax+0.01)),axis=1)==3
-            vidx = np.ceil((cur_point_set[mask,:]-curmin)/(curmax-curmin)*[31.0,31.0,62.0])
-            vidx = np.unique(vidx[:,0]*31.0*62.0+vidx[:,1]*62.0+vidx[:,2])
-            isvalid = np.sum(cur_semantic_seg>0)/len(cur_semantic_seg)>=0.7 and len(vidx)/31.0/31.0/62.0>=0.02
+            vidx = np.ceil((cur_point_set[mask,:]-curmin)/(curmax-curmin)*[31.0,62.0,31.0])
+            vidx = np.unique(vidx[:,0]*31.0*62.0+vidx[:,1]*31.0+vidx[:,2])
+            isvalid = np.sum(cur_semantic_seg>0)/len(cur_semantic_seg)>=0.7 and len(vidx)/31.0/62.0/31.0>=0.02
             if isvalid:
                 break
         choice = np.random.choice(len(cur_semantic_seg), self.npoints, replace=True)
@@ -102,8 +98,10 @@ class ScannetDataset():
         mask = mask[choice]
         sample_weight = self.labelweights[semantic_seg]
         sample_weight *= mask
-        pc_util.write_obj_color(point_set[:,:3], semantic_seg, 'semantics.obj')
-        pc_util.write_obj_color(point_set[:,:3], instance_seg, 'instance.obj')
+        #import ipdb
+        #ipdb.set_trace()
+        #pc_util.write_obj_color(point_set[:,:3], semantic_seg, 'semantics.obj')
+        #pc_util.write_obj_color(point_set[:,:3], instance_seg, 'instance.obj')
 
 
         return point_set, semantic_seg, instance_seg, sample_weight
@@ -111,7 +109,7 @@ class ScannetDataset():
     def __len__(self):
         return len(self.scene_points_list)
 
-class ScannetDatasetWholeScene():
+class SUNCGDatasetWholeScene():
     def __init__(self, root, npoints=4096, split='train'):
         self.npoints = npoints
         with open(split) as f:
