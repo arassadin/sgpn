@@ -64,7 +64,7 @@ def get_model_scannet(point_cloud, is_training, bn=True, bn_decay=None):
     num_point = point_cloud.get_shape()[1].value
 
     l0_xyz = point_cloud[:, :, :3]
-    l0_points = None #point_cloud[:, :, 3:9]
+    l0_points = point_cloud[:, :, 3:6]
 
     l1_xyz, l1_points, l1_indices = pointnet_sa_module(l0_xyz, l0_points, npoint=1024, radius=0.1, nsample=32, mlp=[32,32,64], mlp2=None, group_all=False, is_training=is_training, bn_decay=bn_decay, scope='layer1')
     l2_xyz, l2_points, l2_indices = pointnet_sa_module(l1_xyz, l1_points, npoint=256, radius=0.2, nsample=32, mlp=[64,64,128], mlp2=None, group_all=False, is_training=is_training, bn_decay=bn_decay, scope='layer2')

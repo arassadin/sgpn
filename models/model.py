@@ -12,8 +12,8 @@ import tf_util
 import pointnet
 
 
-NUM_CATEGORY = 21
-NUM_GROUPS = 100
+NUM_CATEGORY = 28
+NUM_GROUPS = 150
 
 def placeholder_inputs(batch_size, num_point, num_group, num_cate):
     if num_point == 0:
