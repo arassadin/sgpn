@@ -5,7 +5,6 @@ import json
 from plyfile import (PlyData, PlyElement, make2d, PlyParseError, PlyProperty)
 
 
-
 ID_COLOR = {
  0 : [0,   0,   0  ],
  1 : [174, 199, 232],
