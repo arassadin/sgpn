@@ -7,7 +7,7 @@ import h5py
 from utils import pc_util
 from utils import scene_util
 
-NUM_CLASSES = 28
+NUM_CLASSES = 21
 
 class ScannetDataset():
     def __init__(self, root, npoints=4096, split='train'):
@@ -18,8 +18,7 @@ class ScannetDataset():
         self.scene_points_list = [] 
         self.semantic_labels_list = []
         self.instance_labels_list = []
-        #self.mapping = self.load_mapping('data/scannet_data/meta/nyu40labels_scannet.csv')
-        self.mapping = self.load_mapping('data/suncg_data/meta/nyu40labels_suncg.csv')
+        self.mapping = self.load_mapping('data/scannet_data/meta/nyu40labels_scannet.csv')
 
         for idx, data_frame in enumerate(self.data_filenames):
             print(idx)
@@ -66,8 +65,6 @@ class ScannetDataset():
         smpsz = np.minimum(coordmax-smpmin,[1.5,1.5,3.0])
         smpsz[2] = coordmax[2]-coordmin[2]
         isvalid = False
-        import ipdb
-        ipdb.set_trace()
         for i in range(10):
             curcenter = point_set[np.random.choice(len(semantic_seg),1)[0],:]
             curmin = curcenter-[0.75,0.75,1.5]
@@ -102,8 +99,8 @@ class ScannetDataset():
         mask = mask[choice]
         sample_weight = self.labelweights[semantic_seg]
         sample_weight *= mask
-        pc_util.write_obj_color(point_set[:,:3], semantic_seg, 'semantics.obj')
-        pc_util.write_obj_color(point_set[:,:3], instance_seg, 'instance.obj')
+        #pc_util.write_obj_color(point_set[:,:3], semantic_seg, 'semantics.obj')
+        #pc_util.write_obj_color(point_set[:,:3], instance_seg, 'instance.obj')
 
 
         return point_set, semantic_seg, instance_seg, sample_weight
@@ -120,8 +117,7 @@ class ScannetDatasetWholeScene():
         self.scene_points_list = [] 
         self.semantic_labels_list = []
         self.instance_labels_list = []
-        #self.mapping = self.load_mapping('data/scannet_data/meta/nyu40labels_scannet.csv')
-        self.mapping = self.load_mapping('data/suncg_data/meta/nyu40labels_suncg.csv')
+        self.mapping = self.load_mapping('data/scannet_data/meta/nyu40labels_scannet.csv')
 
         for data_frame in self.data_filenames:
             data = np.load(os.path.join(root, data_frame + '.npy'))
@@ -148,6 +144,7 @@ class ScannetDatasetWholeScene():
             mapping[int(row['nyu40id'])] = int(row['mappedIdConsecutive'])
         csvfile.close()
         return mapping
+
     def get_filename(self, index):
         return self.data_filenames[index]
 
@@ -217,6 +214,7 @@ class ScannetDatasetWholeScene():
         sample_weights = np.concatenate(tuple(sample_weights),axis=0)
 
         return point_sets, semantic_segs, instance_segs, sample_weights
+
     def __len__(self):
         return len(self.scene_points_list)
 
